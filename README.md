@@ -1,22 +1,38 @@
 # ESP32-FreeRTOS
 
-A demonstration project showcasing how to build a multi-tasking ESP32 application using FreeRTOS, MQTT, OTA updates, and RFID access control.
+> A collection of practical ESP32 FreeRTOS examples demonstrating dual-core task scheduling, networking, OTA updates, and RFID access control using the Arduino framework.
 
-This project was built using the Arduino framework and is intended as a practical example of organizing an ESP32 application across both cores while leveraging FreeRTOS tasks.
+This repository started as an exercise in learning FreeRTOS on the ESP32, but it quickly became a set of small, real-world examples showing how to split responsibilities across both cores instead of putting everything inside `loop()`.
+
+Whether you're learning FreeRTOS tasks, experimenting with OTA, or building an IoT project with networking and RFID, these examples provide a good starting point.
+
+---
+
+## What's Inside?
+
+| Example               | Description                                                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `ESP32-FreeRTOS-MQTT` | Uses MQTT for communication and OTA triggering. Includes WiFi, MQTT, RFID access control, and OTA updates.                  |
+| `ESP32-FreeRTOS-UDP`  | Replaces MQTT with UDP while keeping OTA and RFID functionality intact. Useful for understanding lightweight communication. |
+
+---
 
 ## Features
 
 * Dual-core FreeRTOS architecture
+* Dynamic task creation and deletion
 * WiFi connectivity
-* MQTT publish/subscribe support
-* MQTT-triggered OTA updates
-* RFID-based access control using MFRC522
-* Dynamic task creation
-* Task priorities and task handles
+* MQTT communication
+* UDP communication
+* MQTT/UDP-triggered OTA updates
+* RFID access control using the MFRC522
 * Mutex-protected serial output
-* Periodic MQTT heartbeat messages
+* Task handles and priorities
+* Practical examples of separating networking and hardware logic
 
-## Architecture
+---
+
+## FreeRTOS Layout
 
 ### Core 0
 
@@ -25,10 +41,18 @@ This project was built using the Arduino framework and is intended as a practica
 
 ### Core 1
 
+#### MQTT Example
+
 * WiFi Task
 * MQTT Task
 
-## Hardware
+#### UDP Example
+
+* UDP Listener Task
+
+---
+
+## Hardware Required
 
 | Component           | Quantity |
 | ------------------- | -------: |
@@ -38,7 +62,9 @@ This project was built using the Arduino framework and is intended as a practica
 | LED (optional)      |        1 |
 | 220Ω Resistor       |        1 |
 
-> Note: Many ESP32 development boards expose the onboard LED on GPIO 2, allowing this project to run without an external LED.
+> Most ESP32 development boards expose an onboard LED on GPIO 2, so an external LED is optional.
+
+---
 
 ## Wiring
 
@@ -62,71 +88,114 @@ This project was built using the Arduino framework and is intended as a practica
 | Anode (+)   | GPIO 2     |
 | Cathode (-) | 220Ω → GND |
 
-## MQTT Topics
+---
 
-| Topic             | Payload | Description                                          |
-| ----------------- | ------- | ---------------------------------------------------- |
-| `esp32/heartbeat` | `Alive` | Published every 5 seconds                            |
-| `esp32/ota`       | `ON`    | Creates the OTA task and waits for a firmware upload |
+## MQTT Example
+
+### Topics
+
+| Topic             | Payload | Description             |
+| ----------------- | ------- | ----------------------- |
+| `esp32/heartbeat` | `Alive` | Published periodically. |
+| `esp32/ota`       | `ON`    | Creates the OTA task.   |
+
+### Workflow
+
+1. ESP32 connects to WiFi.
+2. MQTT task connects to the broker.
+3. RFID task continuously scans for cards.
+4. Publishing `ON` to `esp32/ota` creates the OTA task.
+5. Arduino IDE uploads new firmware over the network.
+
+---
+
+## UDP Example
+
+The UDP version listens on:
+
+```cpp
+4210
+```
+
+This example is useful for understanding:
+
+* Connectionless communication
+* Lightweight message passing
+* UDP sockets on the ESP32
+* Combining networking with FreeRTOS
+
+---
 
 ## OTA Configuration
 
-| Setting  | Value        |
-| -------- | ------------ |
-| Hostname | `ESP32-RTOS` |
-| Password | `1234`       |
+```cpp
+Hostname: ESP32-RTOS
+Password: 1234
+```
 
-To trigger OTA:
+### Performing an OTA Update
 
-1. Publish `ON` to `esp32/ota`.
-2. Wait for the OTA task to start.
+1. Trigger the OTA task (MQTT or UDP implementation).
+2. Wait for "OTA Task Started." in the Serial Monitor.
 3. Select the ESP32 network port in Arduino IDE.
-4. Upload the new firmware.
-5. The ESP32 will reboot automatically after a successful update.
+4. Upload the firmware.
+5. The ESP32 reboots automatically after a successful update.
+
+---
 
 ## RFID Access Control
 
-The project uses a hardcoded UID for demonstration purposes.
+A hardcoded UID is used for demonstration:
 
 ```cpp
 byte allowedUID[4] = {0x5C, 0xB8, 0x3B, 0x05};
 ```
 
-When the authorized card is scanned:
+When the correct card is scanned:
 
+* Access is granted.
 * The LED turns ON.
-* Access is granted for 3 seconds.
-* The LED turns OFF automatically.
+* The LED automatically turns OFF after a short delay.
 
-Unauthorized cards are rejected.
+Any other UID is rejected.
+
+---
 
 ## Libraries
 
-Install the following libraries from the Arduino Library Manager:
+Install these libraries from the Arduino Library Manager:
 
-* PubSubClient
+* PubSubClient (MQTT example)
 * MFRC522
 
-The following libraries are included with the ESP32 Arduino core:
+Included with the ESP32 Arduino Core:
 
 * WiFi
+* WiFiUDP
 * ArduinoOTA
 * SPI
 * FreeRTOS
 
-## Why FreeRTOS?
+---
 
-This project intentionally avoids placing all functionality inside `loop()`.
+## Why This Repository Exists
 
-Instead, each responsibility is isolated into its own task:
+Most beginner ESP32 projects eventually become a giant `loop()` full of timers and `if` statements.
 
-* Networking
-* Messaging
-* RFID handling
-* OTA updates
+These examples take a different approach:
 
-This approach makes the application easier to scale and demonstrates how FreeRTOS can be used to structure real-world ESP32 firmware.
+* Networking runs independently.
+* RFID runs independently.
+* OTA is created only when needed.
+* Tasks can be pinned to different cores.
+* Shared resources are protected using mutexes.
+
+The result is firmware that's easier to read, maintain, and extend.
+
+---
 
 ## License
 
-This project is licensed under the MIT License. See the `LICENSE` file for more information.
+Licensed under the MIT License.
+
+See the `LICENSE` file for details.
