@@ -21,6 +21,8 @@ MFRC522 rfid(SS_PIN, RST_PIN);
 
 byte allowedUID[4] = {0x5C, 0xB8, 0x3B, 0x05};
 
+bool ipPrinted = false;
+
 TaskHandle_t mqttTaskHandle = NULL;
 TaskHandle_t otaTaskHandle = NULL;
 
@@ -29,12 +31,15 @@ unsigned long lastWiFiAttempt = 0;
 SemaphoreHandle_t serialMutex;
 
 
-void safePrint(String msg) {
-  xSemaphoreTake(serialMutex, portMAX_DELAY);
-
-  Serial.println(msg);
-
-  xSemaphoreGive(serialMutex);
+void safePrint(const String& msg) {
+  if (serialMutex != NULL) {
+    xSemaphoreTake(serialMutex, portMAX_DELAY);
+    Serial.println(msg);
+    xSemaphoreGive(serialMutex);
+  }
+  else {
+    Serial.println(msg);
+  }
 }
 
 void OTATask(void* pvParameters) {
@@ -82,7 +87,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
       if (otaTaskHandle == NULL) {
         safePrint("Creating OTA Task...");
 
-        xTaskCreatePinnedToCore(OTATask, "OTA", 8192, NULL, 5, &otaTaskHandle, 0);
+        xTaskCreatePinnedToCore(OTATask, "OTA", 16384, NULL, 5, &otaTaskHandle, 0);
       } 
       else {
         safePrint("OTA Task already exists.");
@@ -92,26 +97,58 @@ void callback(char* topic, byte* payload, unsigned int length) {
 }
 
 void MQTTTask(void *pvParameters) {
-  client.setServer(mqtt_server, 1883);
 
+  safePrint("MQTT Task Started.");
+
+  client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
 
+  bool mqttConnected = false;
+
   while (true) {
-    if (!client.connected()) {
+
+    if (WiFi.status() != WL_CONNECTED) {
+
+      if (mqttConnected) {
+        client.disconnect();
+        mqttConnected = false;
+        safePrint("Wi-Fi lost. MQTT disconnected.");
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+
+    if (!mqttConnected) {
+
       safePrint("Connecting MQTT...");
 
-      while (!client.connected()) {
-        client.connect("ESP32");
+      if (client.connect("ESP32")) {
+
+        mqttConnected = true;
+
+        safePrint("MQTT Connected.");
+
+        client.subscribe("esp32/ota");
+
+      } else {
+
+        safePrint(
+          "MQTT Connect Failed. State: " +
+          String(client.state())
+        );
 
         vTaskDelay(pdMS_TO_TICKS(1000));
+        continue;
       }
-      safePrint("MQTT Connected");
-
-      client.subscribe("esp32/ota");
     }
+
     client.loop();
 
-    client.publish("esp32/heartbeat", "Alive");
+    client.publish(
+      "esp32/heartbeat",
+      "Alive"
+    );
 
     vTaskDelay(pdMS_TO_TICKS(5000));
   }
@@ -119,22 +156,32 @@ void MQTTTask(void *pvParameters) {
 
 
 void WiFiFunction() {
-  if (WiFi.status() != WL_CONNECTED &&
-      millis() - lastWiFiAttempt >= 5000) {
 
-    lastWiFiAttempt = millis();
+  if (WiFi.status() != WL_CONNECTED) {
 
-    safePrint("Connecting WiFi...");
-    WiFi.begin(ssid, password);
+    if (millis() - lastWiFiAttempt >= 5000) {
+
+      safePrint("Connecting Wi-Fi...");
+
+      WiFi.begin(ssid, password);
+
+      lastWiFiAttempt = millis();
+
+      ipPrinted = false;
+    }
   }
+  else {
 
-  static bool wasConnected = false;
+    if (!ipPrinted) {
 
-  if (WiFi.status() == WL_CONNECTED && !wasConnected) {
-    safePrint("WiFi Connected!");
-    wasConnected = true;
-  } else if (WiFi.status() != WL_CONNECTED) {
-    wasConnected = false;
+      safePrint("Wi-Fi Connected.");
+      safePrint(
+          "ESP32 IP: " +
+          WiFi.localIP().toString()
+      );
+
+      ipPrinted = true;
+    }
   }
 }
 
@@ -173,17 +220,26 @@ void RFIDFunction() {
 }
 
 void setup() {
+
   Serial.begin(115200);
 
   pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
 
   SPI.begin();
-
   rfid.PCD_Init();
 
   serialMutex = xSemaphoreCreateMutex();
 
-  xTaskCreatePinnedToCore(MQTTTask, "MQTT", 4096, NULL, 1, &mqttTaskHandle, 1);
+  if (serialMutex == NULL) {
+    while (true) {
+    }
+  }
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  xTaskCreatePinnedToCore(MQTTTask, "MQTT", 8192, NULL, 2, &mqttTaskHandle, 1);
 
   safePrint("System Started.");
 }
